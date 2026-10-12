@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  state-logic:
+    name: Life-cycle logic tests and static checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Unit tests (no Odoo needed)
+        run: python -m unittest discover -s tests -v
+      - name: Byte-compile module
+        run: python -m compileall -q re_cheque
+      - name: Parse XML files
+        run: |
+          python - <<'PY'
+          import glob, xml.dom.minidom as m
+          files = glob.glob("**/*.xml", recursive=True)
+          for f in files:
+              m.parse(f)
+          print(f"{len(files)} XML files parsed")
+          PY
+
+  odoo-tests:
+    name: Odoo 17 module tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: odoo
+          POSTGRES_PASSWORD: odoo
+          POSTGRES_DB: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U odoo"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch the modules this one depends on
+        uses: actions/checkout@v4
+        with:
+          repository: islamelsabahy/odoo-real-estate-addons
+          path: deps
+      - name: Install the modules and run the cheque tests in the official Odoo 17 image
+        run: |
+          set +e
+          docker run --rm --network host \
+            -e HOST=127.0.0.1 -e USER=odoo -e PASSWORD=odoo \
+            -v "$PWD/deps/re_unit:/mnt/extra-addons/re_unit" \
+            -v "$PWD/deps/re_installment:/mnt/extra-addons/re_installment" \
+            -v "$PWD/re_cheque:/mnt/extra-addons/re_cheque" \
+            odoo:17.0 \
+            odoo -d ci_db -i re_cheque \
+                 --test-enable --test-tags /re_cheque --stop-after-init --log-level=test \
+                 2>&1 | tee odoo-test.log
+          set -e
+          if grep -qE " 0 failed, 0 error\(s\) of [1-9][0-9]* tests" odoo-test.log; then
+            grep -E " 0 failed, 0 error\(s\) of [1-9][0-9]* tests" odoo-test.log
+          else
+            esc() { sed 's/%/%25/g; s/\r//g' | awk '{printf "%s%%0A", $0}'; }
+            echo "::error title=Odoo errors::$(grep -nE 'ERROR|FAIL|Traceback|CRITICAL|Error:' odoo-test.log | head -40 | esc)"
+            echo "::error title=Odoo log tail::$(tail -n 30 odoo-test.log | esc)"
+            exit 1
+          fi

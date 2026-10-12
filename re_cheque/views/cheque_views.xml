@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_re_cheque_tree" model="ir.ui.view">
+        <field name="name">re.cheque.tree</field>
+        <field name="model">re.cheque</field>
+        <field name="arch" type="xml">
+            <tree decoration-danger="bucket == 'overdue'" decoration-warning="bucket == 'due_soon'"
+                  decoration-muted="bucket == 'closed'">
+                <field name="name"/>
+                <field name="bank"/>
+                <field name="partner_id"/>
+                <field name="due_date"/>
+                <field name="amount" sum="Total"/>
+                <field name="state"/>
+                <field name="bucket"/>
+                <field name="currency_id" column_invisible="1"/>
+            </tree>
+        </field>
+    </record>
+
+    <record id="view_re_cheque_form" model="ir.ui.view">
+        <field name="name">re.cheque.form</field>
+        <field name="model">re.cheque</field>
+        <field name="arch" type="xml">
+            <form>
+                <header>
+                    <button name="action_deposit" type="object" string="Deposit" class="btn-primary"
+                            invisible="state != 'in_hand'"/>
+                    <button name="action_clear" type="object" string="Mark Cleared" class="btn-primary"
+                            invisible="state != 'deposited'"/>
+                    <button name="action_bounce" type="object" string="Bounced"
+                            invisible="state != 'deposited'"/>
+                    <button name="action_represent" type="object" string="Present Again"
+                            invisible="state != 'bounced'"/>
+                    <button name="action_return" type="object" string="Return to Drawer"
+                            invisible="state not in ('in_hand', 'bounced')"/>
+                    <button name="action_cancel" type="object" string="Cancel"
+                            invisible="state != 'in_hand'"/>
+                    <field name="state" widget="statusbar" statusbar_visible="in_hand,deposited,cleared"/>
+                </header>
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="name"/>
+                            <field name="bank"/>
+                            <field name="partner_id"/>
+                            <field name="company_id" groups="base.group_multi_company"/>
+                            <field name="currency_id" invisible="1"/>
+                            <field name="amount"/>
+                        </group>
+                        <group>
+                            <field name="received_date"/>
+                            <field name="due_date"/>
+                            <field name="line_id"/>
+                            <field name="deposit_date" readonly="1"/>
+                            <field name="clear_date" readonly="1"/>
+                            <field name="bounce_reason" invisible="state != 'bounced'"/>
+                        </group>
+                    </group>
+                </sheet>
+                <div class="oe_chatter">
+                    <field name="message_follower_ids"/>
+                    <field name="message_ids"/>
+                </div>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_re_cheque_search" model="ir.ui.view">
+        <field name="name">re.cheque.search</field>
+        <field name="model">re.cheque</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="name"/>
+                <field name="partner_id"/>
+                <field name="bank"/>
+                <filter name="open" string="Open" domain="[('state', 'in', ('in_hand', 'deposited'))]"/>
+                <filter name="overdue" string="Overdue"
+                        domain="['|', ('state', '=', 'bounced'), '&amp;', ('state', 'in', ('in_hand', 'deposited')), ('due_date', '&lt;', context_today().strftime('%Y-%m-%d'))]"/>
+                <filter name="due_soon" string="Due in 7 days"
+                        domain="[('state', 'in', ('in_hand', 'deposited')), ('due_date', '&gt;=', context_today().strftime('%Y-%m-%d')), ('due_date', '&lt;=', (context_today() + datetime.timedelta(days=7)).strftime('%Y-%m-%d'))]"/>
+                <separator/>
+                <filter name="in_hand" string="In hand" domain="[('state', '=', 'in_hand')]"/>
+                <filter name="bounced" string="Bounced" domain="[('state', '=', 'bounced')]"/>
+                <group expand="0" string="Group By">
+                    <filter name="group_state" string="Status" context="{'group_by': 'state'}"/>
+                    <filter name="group_bank" string="Bank" context="{'group_by': 'bank'}"/>
+                    <filter name="group_due" string="Due month" context="{'group_by': 'due_date:month'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="view_re_cheque_pivot" model="ir.ui.view">
+        <field name="name">re.cheque.pivot</field>
+        <field name="model">re.cheque</field>
+        <field name="arch" type="xml">
+            <pivot string="Cheque portfolio">
+                <field name="due_date" interval="month" type="row"/>
+                <field name="state" type="col"/>
+                <field name="amount" type="measure"/>
+            </pivot>
+        </field>
+    </record>
+
+    <record id="action_re_cheque" model="ir.actions.act_window">
+        <field name="name">Cheques</field>
+        <field name="res_model">re.cheque</field>
+        <field name="view_mode">tree,form,pivot</field>
+        <field name="context">{'search_default_open': 1}</field>
+    </record>
+
+    <menuitem id="menu_re_cheque" name="Cheques"
+              parent="re_unit.menu_re_root" action="action_re_cheque" sequence="40"/>
+</odoo>
